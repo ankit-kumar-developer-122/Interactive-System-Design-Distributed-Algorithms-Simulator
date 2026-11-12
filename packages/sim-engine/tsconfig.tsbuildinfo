@@ -1,0 +1,1 @@
+{"root":["./src/index.ts","./src/engine/minheap.ts","./src/engine/simulationengine.ts","./src/engine/virtualclock.ts","./src/engine/xorshift128plus.ts","./src/types/index.ts"],"errors":true,"version":"5.9.3"}

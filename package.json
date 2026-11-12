@@ -1,0 +1,20 @@
+{
+  "name": "dist-sim",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build --workspace=packages/sim-engine",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:sim-engine": "pnpm --filter sim-engine dev",
+    "dev:api": "npm run dev:api",
+    "dev:web": "npm run dev:web"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ]
+}
