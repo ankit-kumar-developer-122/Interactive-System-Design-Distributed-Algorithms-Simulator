@@ -11,22 +11,25 @@ This file records weekly milestones, daily tasks, and open questions. Update it 
 ---
 
 ### Day 1 — Monday 2025-11-10 · Repo scaffolding
-- [x] Initialize pnpm/npm workspaces for `packages/sim-engine`, `packages/api`, `packages/web`
+- [x] Initialize pnpm workspaces for `packages/sim-engine` (api/web stubs created)
 - [x] Create `CLAUDE.md` describing structure, tech stack, commands
-- [x] Set up ESLint + Prettier presets shared across TS packages
-- [x] Configure ruff/black for Python API package
-- [ ] Add root `package.json` scripts (`build`, `test`, `lint`, `typecheck`, `dev:*`)
-- [ ] ~~Run `npm install && npm run build` end-to-end (post-merge verification)~~
+- [x] Add root `package.json` with monorepo scripts (`build`, `test`, `lint`, `typecheck`)
+- [x] Configure pnpm workspace (`pnpm-workspace.yaml`, lockfile)
+- [x] ~~Run `npm install && npm run build` end-to-end~~ — verified via `pnpm run build` + `pnpm exec vitest run`
 - **Blockers:** None
 
 ---
 
 ### Day 2 — Tuesday 2025-11-11 · Simulator core skeleton
-- [ ] Define TypeScript types: `Event`, `ProcessState`, `Scenario`, `Snapshot`
-- [ ] Implement `MinHeap<Event>` with `(time, seq)` lexicographic ordering
-- [ ] Write unit tests for heap invariants (push/pop/peek)
-- [ ] Implement bare-bones `DiscreteEventSimulator` class with `schedule()` and `step()`
-- [ ] Ensure sim-engine builds with `tsc --noEmit` clean
+- [x] Define TypeScript types: `Event`, `NodeState`, `Snapshot`, `PacingMode`, `SimulationParams`
+- [x] Implement `MinHeap<Event>` with `(time, seq)` lexicographic ordering
+- [x] Write unit tests for heap invariants (push/pop/peek, 100-event ordering, clear, toArray)
+- [x] Implement `VirtualClock` with forward-only invariant
+- [x] Implement seedable `Xorshift128Plus` PRNG with state serialization round-trip
+- [x] Implement `SimulationEngine` with `schedule()`, `step()`, pause/resume/stop
+- [x] Pacing modes: `'step'` (manual), `'fast'` (run to completion), `'realtime'` (timed delays)
+- [x] Snapshot / restore: full state serialization including clock, queue, nodes, RNG state, tick count
+- [x] All tests pass: 50 Vitest tests, `tsc --noEmit` clean, `tsc` build succeeds
 - **Blockers:** None
 
 ---
