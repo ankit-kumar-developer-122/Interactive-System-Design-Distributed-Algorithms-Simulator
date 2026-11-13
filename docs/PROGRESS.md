@@ -85,12 +85,26 @@ This file records weekly milestones, daily tasks, and open questions. Update it 
 
 ---
 
-### Day 5 — Friday 2025-11-14 · API stub + WebSocket heartbeat
-- [ ] Scaffold FastAPI app in `packages/api/src/main.py`
-- [ ] Implement `/health` endpoint returning `{"status":"ok"}`
-- [ ] Add WebSocket endpoint `/ws/sim` accepting `{action, payload}` JSON
-- [ ] Wire engine call into `/ws/sim/start` → returns initial tick events
-- [ ] Run `pytest` smoke test against local API
+### Day 5 — Friday 2025-11-14 · Compute & Routing Nodes
+- [x] Implement `LoadBalancer` class supporting:
+  - Round-Robin routing with automatic skip of unhealthy servers
+  - Least-Connections routing (considers both active connections and queue depth)
+  - Weighted routing using seeded PRNG for deterministic distribution
+  - Health-check failover with configurable interval and timeout
+  - Dynamic server add/remove, health status updates (healthy/degraded/unhealthy)
+  - Connection tracking and statistics reset
+- [x] Implement `AppServer` class modeling:
+  - Concurrent worker threads with configurable `maxWorkers`
+  - Bounded request queue with configurable `maxQueueSize`
+  - Returns `RequestStatus.REJECTED_503` when both workers and queue are full
+  - Non-linear latency degradation: `latency = baseLatency * (1 + utilization * saturationFactor)`
+  - Utilization tracking and queue depth metrics
+  - Worker completion processing and queue draining
+- [x] Write 56 deterministic Vitest unit tests (32 LoadBalancer + 24 AppServer):
+  - **LoadBalancer**: server management (add/remove/stats), round-robin fairness, least-connections selection, weighted distribution ratios, health check failover, degraded server handling, connection tracking, configuration immutability, reset functionality, deterministic behavior across partitions
+  - **AppServer**: basic request acceptance/rejection, worker management, queue overflow behavior (503 on full queue), latency degradation under increasing utilization, utilization metrics, configuration, reset/replay support, edge cases (zero workers, large queues, negative latency)
+- [x] Export new modules from `sim-engine/src/index.ts`
+- [x] All tests pass: 159 Vitest tests total, `tsc --noEmit` clean
 - **Blockers:** None
 
 ---
