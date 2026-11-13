@@ -44,10 +44,43 @@ This file records weekly milestones, daily tasks, and open questions. Update it 
 ---
 
 ### Day 4 — Thursday 2025-11-13 · First scenario model
-- [ ] Define `SimpleLeaderElection` scenario shape (3 processes, timer-driven)
-- [ ] Register it in `sim-engine/src/scenarios/index.ts`
-- [ ] Run golden-path test: verify first three ticks produce expected event log
-- [ ] Export scenario definitions via a stable JSON schema for future validation
+- [x] Define `SimpleLeaderElection` scenario shape (3 processes, timer-driven)
+- [x] Register it in `sim-engine/src/scenarios/index.ts`
+- [x] Run golden-path test: verify first three ticks produce expected event log
+- [x] Export scenario definitions via a stable JSON schema for future validation
+- **Blockers:** None
+
+---
+
+### Day 3–4 (continued) — Network & Traffic Layer
+- [x] Implement `Packet` interface with `id`, `from`, `to`, `data`, `createdAt`, `estimatedArrival`, `delivered`, `dropped`
+- [x] Implement `NetworkLink` class supporting:
+  - Configurable `baseLatency`, `jitterRange`, `jitterType` ('uniform' | 'gaussian')
+  - Seeded uniform jitter in [-range, +range]
+  - Seeded Gaussian approximation via CLT (sum of 12 uniforms − 6) scaled by `jitterRange`
+  - Configurable `packetLossPercentage` (0–100) applied per-send
+  - Bandwidth-limited serialization delay (`1/bandwidth`)
+  - `isPartitioned()` / `setPartitioned(bool)` toggles that drop all in-flight packets
+  - `send(packet, currentTime)` → returns packet with `estimatedArrival` or `null` on drop/partition
+  - `processPackets(currentTime, maxProcessingRate?)` → FIFO delivery with bandwidth throttling
+  - `clearPending()`, `pendingCount()`, `updateConfig(updates)`, `getConfig()`
+- [x] Implement `ClientGenerator` class supporting:
+  - `'constant'` pattern: deterministic regular intervals
+  - `'burst'` pattern: burstSize packets followed by cooldown of `interval * burstMultiplier`
+  - `'poisson'` pattern: exponential inter-arrival times via inverse CDF (`-mean * ln(U)`)
+  - Deterministic RNG (seeded Xorshift128+) for reproducible traffic
+  - Multi-target cycling via modulo on monotonic counter
+  - `reset()` to restore initial state for replay
+- [x] Write 47 deterministic Vitest unit tests (23 NetworkLink + 24 ClientGenerator):
+  - Packet drops at various loss percentages
+  - Partition injection/healing round-trips
+  - Jitter bounds (zero jitter exactness, uniform range, Gaussian distribution stats)
+  - Poisson mean convergence over large samples
+  - Burst cluster detection and cooldown gaps
+  - Bandwidth-limited serialization delay ordering
+  - Determinism across seeds and resets
+- [x] Update `src/index.ts` to export network and generator modules
+- [x] `tsc --noEmit` clean, `npm run build` succeeds, all 103 tests pass
 - **Blockers:** None
 
 ---
