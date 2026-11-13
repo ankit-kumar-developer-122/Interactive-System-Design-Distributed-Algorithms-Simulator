@@ -109,6 +109,47 @@ This file records weekly milestones, daily tasks, and open questions. Update it 
 
 ---
 
+### Day 6 — Saturday 2025-11-15 · Storage & Database Nodes
+- [x] Implement `CacheNode` class supporting:
+  - LRU (Least Recently Used) eviction policy
+  - LFU (Least Frequently Used) eviction policy with tie-breaking by recency
+  - Configurable capacity with deterministic eviction order
+  - TTL expiration on virtual clock (per-entry or default)
+  - Cache-aside and write-through operation modes
+  - Hit/miss/eviction/expiration metrics via `CacheStats`
+  - `processExpirations(currentTime)` batch expiration helper
+- [x] Write 29 deterministic Vitest unit tests covering:
+  - LRU eviction order and access-order updates
+  - LFU eviction with frequency counting and LRU tie-breaking
+  - TTL expiry via get() and processExpirations()
+  - Per-entry TTL override
+  - Statistics tracking (hits, misses, evictions, expirations, hit rate)
+  - Configuration defaults and customization
+  - Edge cases (capacity 1, large operations, overwrite existing keys)
+- [x] Implement `DatabaseNode` class supporting:
+  - Primary-replica topology with configurable replica count
+  - Sync replication mode (immediate) vs async replication mode (delayed by lag)
+  - Configurable read/write latency
+  - Replication lag causing stale reads during lag windows
+  - Connection pool with configurable max connections
+  - `REJECTED_503` on pool exhaustion for both reads and writes
+  - `processReplications(currentTime)` to advance async replications
+  - Read/write/connection statistics
+- [x] Write 26 deterministic Vitest unit tests covering:
+  - Basic read/write operations
+  - Sync replication completeness
+  - Async replication pending state and completion
+  - Stale read detection during replication lag
+  - Connection pool exhaustion (503 rejection)
+  - Connection release and pool availability
+  - Statistics tracking
+  - Edge cases (zero replicas, invalid replica index, rapid operations)
+- [x] Export both modules from `sim-engine/src/index.ts`
+- [x] All tests pass: 214 Vitest tests total (new: 55), `tsc --noEmit` clean, `npm run build` succeeds
+- **Blockers:** None
+
+---
+
 ### Day 6 — Saturday 2025-11-15 · Web app shell
 - [ ] Create Vite + React 18 scaffold in `packages/web`
 - [ ] Implement basic layout: scenario selector, start/pause/step controls, tick counter
