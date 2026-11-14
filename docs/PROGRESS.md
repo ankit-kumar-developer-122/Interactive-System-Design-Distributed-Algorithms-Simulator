@@ -174,3 +174,34 @@ This file records weekly milestones, daily tasks, and open questions. Update it 
 - [ ] What PRNG algorithm balances speed + quality for distributed-simulation needs?
 - [ ] Do we need concurrency inside the engine (multi-worker)? Start single-threaded.
 - [ ] How many concurrent sessions should the API support per process/memory limits?
+
+---
+
+## Week 2 — Distributed Algorithms (2025-11-17 → 2025-11-23)
+
+**Goal:** Implement core distributed algorithms and data structures in sim-engine, starting with consistent hashing for node placement.
+
+---
+
+### Day 1 — Monday 2025-11-17 · Consistent Hash Ring
+- [x] Implement `ConsistentHashRing` class in `packages/sim-engine/src/consistent_hashing/`
+- [x] Support configurable virtual nodes (vnodes) per physical node (default: 150)
+- [x] Implement FNV-1a 32-bit hash as primary algorithm
+- [x] Implement Murmur-like mix as alternative hash function option
+- [x] Key insight: pre-compute base hash from physical node ID, then XOR each vnode index byte individually before final hash — prevents sequential-index clustering
+- [x] O(log V) binary-search lookup for `getNode(key)`
+- [x] Replication support via `getNodes(key, count)` returning distinct physical nodes clockwise on ring
+- [x] Dynamic `addNode()` / `removeNode()` methods computing approximate remapped fraction
+- [x] Write 39 deterministic Vitest unit tests covering:
+  - Construction & config validation
+  - Node addition/removal/clear operations
+  - Deterministic key-to-node assignment
+  - Distinct physical replica selection
+  - Uniform load distribution across vnode counts (verified < 15% stddev at 300 vnodes / 10 nodes)
+  - Minimal key redistribution on node changes (bounded < 50% when adding/removing single node)
+  - Hash algorithm variants producing different assignments
+  - Edge cases (empty string, long keys, unicode, single vnode/node, multi-cycle add/remove)
+- [x] Export from `sim-engine/src/index.ts`
+- [x] Write ADR-002 explaining consistent hashing design decisions
+- [x] All tests pass: 253 total, `tsc --noEmit` clean
+- **Blockers:** None
