@@ -183,6 +183,25 @@ This file records weekly milestones, daily tasks, and open questions. Update it 
 
 ---
 
+### Day 2 — Monday 2025-11-17 · Raft Consensus Part 1 (Leader Election & Term Management)
+- [x] Implement `RaftNode` class supporting Follower, Candidate, and Leader roles
+- [x] Monotonic `currentTerm`, `votedFor`, deterministic randomized election timeouts via seeded PRNG on VirtualClock
+- [x] `RequestVote` request/response RPC handling: lastLogTerm/lastLogIndex up-to-date log checks, step-down on higher term, split-vote timeout recovery
+- [x] Periodic leader heartbeats (AppendEntries empty heartbeats) that reset follower election timers
+- [x] Implement `RaftCluster` wiring multiple RaftNode instances over NetworkLink for network partition injection (asymmetric/symmetric)
+- [x] Write 68 deterministic Vitest unit tests covering:
+  - Initial leader election in 3- and 5-node clusters
+  - Split-vote resolution with configurable jitter
+  - Higher-term step-down behavior
+  - Leader re-election after primary partition
+  - Heartbeat timer reset
+  - Determinism across identical seeds
+- [x] Export Raft modules from `sim-engine/src/index.ts`
+- [x] All tests pass: 321 total, `tsc --noEmit` clean, build succeeds
+- **Blockers:** None
+
+---
+
 ### Day 1 — Monday 2025-11-17 · Consistent Hash Ring
 - [x] Implement `ConsistentHashRing` class in `packages/sim-engine/src/consistent_hashing/`
 - [x] Support configurable virtual nodes (vnodes) per physical node (default: 150)

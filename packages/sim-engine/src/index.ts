@@ -6,3 +6,4 @@ export * from './loadbalancer/AppServer.js';
 export * from './cache/CacheNode.js';
 export * from './database/DatabaseNode.js';
 export * from './consistent_hashing/ConsistentHashRing.js';
+export * from './raft/index.js';
