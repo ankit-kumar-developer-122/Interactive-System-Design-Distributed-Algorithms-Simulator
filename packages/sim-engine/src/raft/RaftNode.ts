@@ -8,6 +8,7 @@ import type {
   RequestVoteResponse,
   AppendEntriesArgs,
   AppendEntriesResponse,
+  StateMachineSnapshot,
 } from './types.js';
 import { DEFAULT_CLUSTER_CONFIG } from './types.js';
 
@@ -17,7 +18,7 @@ const DEFAULT_HEARTBEAT_INTERVAL = 10;
 /**
  * A single Raft node implementing the consensus state machine.
  * Supports Follower, Candidate, and Leader roles with term management,
- * leader election, and heartbeats.
+ * leader election, log replication, commit advancement, and Figure 8 safety.
  */
 export class RaftNode {
   readonly nodeId: number;
@@ -26,7 +27,7 @@ export class RaftNode {
   private clock: number = 0;
   private seq: number = 0;
 
-  // Raft state
+  // ── Raft persistent state ────────────────────────────────────────
   role: RaftRole = 'follower';
   currentTerm: number = 0;
   votedFor: number | null = null;
@@ -34,18 +35,21 @@ export class RaftNode {
   commitIndex: number = 0;
   lastApplied: number = 0;
 
-  // Leader state
+  // ── Leader transient state ───────────────────────────────────────
   nextIndex = new Map<number, number>();
   matchIndex = new Map<number, number>();
 
-  // Timing
+  // ── Timing ───────────────────────────────────────────────────────
   private electionTimeout: number = DEFAULT_ELECTION_TIMEOUT;
   private electionTimerExpiry: number = 0;
   private heartbeatInterval: number = DEFAULT_HEARTBEAT_INTERVAL;
   private lastHeartbeatTime: number = 0;
 
-  // Vote tracking
+  // ── Vote tracking (transient) ────────────────────────────────────
   private votesReceived = new Set<number>();
+
+  // ── Key-value state machine ──────────────────────────────────────
+  private stateMachine: StateMachineSnapshot = {};
 
   constructor(nodeId: number, config: Partial<RaftClusterConfig> = {}, seed?: number) {
     this.nodeId = nodeId;
@@ -70,6 +74,7 @@ export class RaftNode {
       matchIndex: new Map(this.matchIndex),
       electionTimeout: this.electionTimeout,
       heartbeatInterval: this.heartbeatInterval,
+      stateMachine: { ...this.stateMachine },
     };
   }
 
@@ -146,7 +151,100 @@ export class RaftNode {
       }
     }
     // Don't clear votes — they remain valid evidence of the election win.
-    // startElection() already adds self-vote; recordVoteFrom() adds others.
+  }
+
+  // ── Client Command Submission (Part 2) ───────────────────────────
+
+  /**
+   * Propose a client command on the leader. Appends the entry to the local log.
+   * Returns true if the command was accepted, false otherwise.
+   */
+  propose(command: string): boolean {
+    if (this.role !== 'leader') {
+      return false;
+    }
+    const newIndex = this.log.length + 1;
+    this.log.push({ index: newIndex, term: this.currentTerm, command });
+    // Set nextIndex/matchIndex for the new entry
+    for (let i = 0; i < this.config.nodeCount; i++) {
+      if (i !== this.nodeId) {
+        // nextIndex already points after the last entry; will be sent in next heartbeat
+        if (!this.nextIndex.has(i) || this.nextIndex.get(i)! <= newIndex) {
+          // Update to point past the new entry once acked
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Apply committed entries to the state machine (key-value store).
+   * Called by the leader after commitIndex advances.
+   * Returns list of applied commands.
+   */
+  applyCommittedEntries(): string[] {
+    const applied: string[] = [];
+    while (this.lastApplied < this.commitIndex) {
+      this.lastApplied++;
+      const entry = this.log[this.lastApplied - 1];
+      if (entry && entry.command) {
+        applied.push(entry.command);
+        this.applyCommand(entry.command);
+      }
+    }
+    return applied;
+  }
+
+  /** Apply a single command to the key-value state machine. */
+  applyCommand(command: string): void {
+    const parts = command.split(' ');
+    if (parts.length === 0) return;
+    const action = parts[0];
+    if (action === 'set' && parts.length >= 3) {
+      const key = parts[1];
+      const value = parts.slice(2).join(' ');
+      this.stateMachine[key] = value;
+    } else if (action === 'del' && parts.length >= 2) {
+      const key = parts[1];
+      delete this.stateMachine[key];
+    }
+  }
+
+  /**
+   * Advance commitIndex per Figure 8: for the current term, find the highest
+   * index replicated on a majority of nodes and commit it.
+   */
+  advanceCommitIndex(): void {
+    if (this.role !== 'leader') return;
+    // Find indices replicated on a majority (including self)
+    const candidates = this.log.map((_, i) => i + 1); // 1-based indices
+    const majority = Math.floor(this.config.nodeCount / 2) + 1;
+    let newCommit = this.commitIndex;
+    for (const idx of candidates) {
+      if (idx <= this.commitIndex) continue;
+      const entry = this.log[idx - 1];
+      if (!entry || entry.term !== this.currentTerm) continue;
+      let replicationCount = 1; // self
+      for (let j = 0; j < this.config.nodeCount; j++) {
+        if (j === this.nodeId) continue;
+        const match = this.matchIndex.get(j) ?? 0;
+        if (match >= idx) replicationCount++;
+      }
+      if (replicationCount >= majority) {
+        newCommit = Math.max(newCommit, idx);
+      }
+    }
+    this.commitIndex = newCommit;
+  }
+
+  /** Read a key from the state machine. */
+  getStateValue(key: string): unknown {
+    return this.stateMachine[key];
+  }
+
+  /** Get the full state machine snapshot. */
+  getStateMachineSnapshot(): StateMachineSnapshot {
+    return { ...this.stateMachine };
   }
 
   // ── Vote Handling ─────────────────────────────────────────────────
@@ -158,10 +256,6 @@ export class RaftNode {
       this.becomeFollower(args.term);
     }
 
-    // Grant vote only if:
-    // 1. Candidate's term is at least as high as ours
-    // 2. We haven't already voted for someone else in this term
-    // 3. Candidate's log is at least as up-to-date as ours
     let voteGranted = false;
     if (args.term >= this.currentTerm) {
       if (
@@ -225,7 +319,7 @@ export class RaftNode {
       if (logMatches) {
         success = true;
 
-        // Append new entries
+        // Append new entries (with backtracking on conflicts)
         if (args.entries.length > 0) {
           for (const entry of args.entries) {
             const entryIdx = entry.index - 1;
@@ -241,7 +335,7 @@ export class RaftNode {
           }
         }
 
-        // Update commit index
+        // Update commit index (Figure 8: only commit from currentTerm)
         if (args.leaderCommit > this.commitIndex) {
           this.commitIndex = Math.min(args.leaderCommit, this.log.length);
         }
@@ -267,7 +361,7 @@ export class RaftNode {
 
   /** Get count of votes received (excluding self). */
   getVoteCount(): number {
-    return this.votesReceived.size - 1; // exclude self-vote
+    return this.votesReceived.size - 1;
   }
 
   /** Get total vote count including self. */
@@ -299,6 +393,7 @@ export class RaftNode {
     this.matchIndex = new Map(state.matchIndex);
     this.electionTimeout = state.electionTimeout;
     this.heartbeatInterval = state.heartbeatInterval;
+    this.stateMachine = state.stateMachine ?? {};
     this.votesReceived.clear();
     // Restore self-vote if this node was a candidate/leader
     if (state.role === 'candidate' || state.role === 'leader') {

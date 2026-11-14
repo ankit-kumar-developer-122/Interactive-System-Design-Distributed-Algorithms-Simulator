@@ -1,5 +1,5 @@
 /**
- * Raft consensus types and interfaces.
+ * Raft consensus types and interfaces — Part 2 extension.
  */
 
 export type RaftRole = 'follower' | 'candidate' | 'leader';
@@ -36,6 +36,10 @@ export interface AppendEntriesResponse {
   success: boolean;
 }
 
+export interface StateMachineSnapshot {
+  [key: string]: unknown;
+}
+
 export interface RaftNodeState {
   role: RaftRole;
   currentTerm: number;
@@ -47,6 +51,7 @@ export interface RaftNodeState {
   matchIndex: Map<number, number>;
   electionTimeout: number;
   heartbeatInterval: number;
+  stateMachine: StateMachineSnapshot;
 }
 
 export interface RaftClusterConfig {

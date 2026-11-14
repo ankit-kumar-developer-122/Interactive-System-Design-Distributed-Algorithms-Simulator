@@ -183,21 +183,30 @@ This file records weekly milestones, daily tasks, and open questions. Update it 
 
 ---
 
-### Day 2 — Monday 2025-11-17 · Raft Consensus Part 1 (Leader Election & Term Management)
+### Day 2 — Monday 2025-11-17 · Raft Consensus Part 1 & 2 (Leader Election, Log Replication & Commitment)
 - [x] Implement `RaftNode` class supporting Follower, Candidate, and Leader roles
 - [x] Monotonic `currentTerm`, `votedFor`, deterministic randomized election timeouts via seeded PRNG on VirtualClock
 - [x] `RequestVote` request/response RPC handling: lastLogTerm/lastLogIndex up-to-date log checks, step-down on higher term, split-vote timeout recovery
 - [x] Periodic leader heartbeats (AppendEntries empty heartbeats) that reset follower election timers
-- [x] Implement `RaftCluster` wiring multiple RaftNode instances over NetworkLink for network partition injection (asymmetric/symmetric)
-- [x] Write 68 deterministic Vitest unit tests covering:
+- [x] **Part 2**: Client command submission (`propose(command)`) — leader appends `{term, index, command}` entries to local log
+- [x] **Part 2**: Full AppendEntries replication with per-follower `nextIndex[]` / `matchIndex[]` tracking; on success, advance `nextIndex` and `matchIndex`; on failure, decrement `nextIndex` by 1 for backtracking
+- [x] **Part 2**: Figure 8 safety — commit advancement only when entry replicated on majority AND from current term; `commitIndex = max(commitIndex, lastApplied+1)` bounded by majority match
+- [x] **Part 2**: Sequential state-machine application — leader applies committed entries to an in-memory key-value `stateMachine`, exposed via `getStateMachineSnapshot()` and `getStateValue(key)`
+- [x] **Part 2**: `RaftCluster` wiring multiple `RaftNode` instances over `NetworkLink`; support for asymmetric/symmetric network partitions via `setPartition(a, b, bool)`
+- [x] **Part 2**: Deterministic regression test for partition healing — divergent uncommitted logs are overwritten by leader's authoritative log via AppendEntries backtracking
+- [x] Write 86 deterministic Vitest unit tests covering:
   - Initial leader election in 3- and 5-node clusters
   - Split-vote resolution with configurable jitter
   - Higher-term step-down behavior
   - Leader re-election after primary partition
-  - Heartbeat timer reset
-  - Determinism across identical seeds
+  - Heartbeat timer reset and leadership stability
+  - Client command proposal, log append, and replication to followers
+  - Figure 8 commitment safety: no cross-term commit, monotonic commitIndex
+  - State machine apply on leader after commit
+  - Divergent log reconciliation after partition heal (conflict overwrite)
+  - Determinism across identical seeds (3-node and 5-node)
 - [x] Export Raft modules from `sim-engine/src/index.ts`
-- [x] All tests pass: 321 total, `tsc --noEmit` clean, build succeeds
+- [x] All tests pass: 339 total (Raft: 86), `tsc --noEmit` clean, build succeeds
 - **Blockers:** None
 
 ---

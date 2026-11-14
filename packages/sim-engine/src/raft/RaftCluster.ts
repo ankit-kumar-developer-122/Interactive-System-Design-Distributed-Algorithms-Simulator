@@ -6,8 +6,8 @@ import { DEFAULT_CLUSTER_CONFIG } from './types.js';
 
 /**
  * A cluster of Raft nodes connected via network links.
- * Manages the network topology and provides methods to simulate
- * network partitions and communication.
+ * Manages the network topology, log replication, commit advancement,
+ * and provides methods to simulate network partitions and communication.
  */
 export class RaftCluster {
   readonly nodes: RaftNode[];
@@ -70,7 +70,6 @@ export class RaftCluster {
 
   /** Advance the cluster clock and process events. */
   advanceClock(time: number): void {
-    // Advance all nodes' clocks
     for (const node of this.nodes) {
       node.advanceClock(time);
     }
@@ -110,7 +109,6 @@ export class RaftCluster {
 
     link.send(packet, this.clock);
 
-    // Process the vote
     const { response, voteGranted } = voter.handleRequestVote({
       term: candidate.currentTerm,
       candidateId,
@@ -118,7 +116,6 @@ export class RaftCluster {
       lastLogTerm: lastLog.lastLogTerm,
     });
 
-    // Record vote if granted
     if (voteGranted) {
       candidate.recordVoteFrom(voterId);
     }
@@ -126,7 +123,10 @@ export class RaftCluster {
     return response;
   }
 
-  /** Send AppendEntries RPC from leader to follower. Returns response. */
+  /**
+   * Send AppendEntries RPC from leader to follower.
+   * Returns response and updates leader's nextIndex/matchIndex.
+   */
   sendAppendEntries(leaderId: number, followerId: number): { term: number; success: boolean } {
     const leader = this.nodes[leaderId];
     const follower = this.nodes[followerId];
@@ -140,11 +140,17 @@ export class RaftCluster {
       return { term: leader.currentTerm, success: false };
     }
 
-    const prevLogIndex = (leader.nextIndex.get(followerId) ?? leader.log.length) - 1;
+    // Calculate what to send based on leader's nextIndex for this follower
+    const nextIdx = leader.nextIndex.get(followerId) ?? leader.log.length;
+    // Derive prevLogIndex/Term from the LEADER's log at the boundary.
+    // NextIdx is 1-based (points at the first un-replicated entry).
+    // prevLogIndex = nextIdx - 1 points to the last entry the leader assumes
+    // the follower already has. prevLogTerm comes from the leader's log.
+    const prevLogIndex = nextIdx > 1 ? nextIdx - 1 : -1;
     const prevLogTerm = prevLogIndex >= 0 && prevLogIndex < leader.log.length
       ? leader.log[prevLogIndex].term
       : 0;
-    const entries = leader.log.slice(prevLogIndex + 1);
+    const entries = leader.log.slice(Math.max(0, nextIdx - 1));
 
     const packet = createPacket(
       `ae_${leaderId}_to_${followerId}_${this.clock}`,
@@ -166,7 +172,6 @@ export class RaftCluster {
 
     link.send(packet, this.clock);
 
-    // Process the append entries
     const { response, success } = follower.handleAppendEntries({
       term: leader.currentTerm,
       leaderId,
@@ -176,10 +181,28 @@ export class RaftCluster {
       leaderCommit: leader.commitIndex,
     });
 
+    // Update leader's nextIndex and matchIndex based on response
+    if (success) {
+      // Move nextIndex past all replicated entries
+      const firstSentIndex = entries.length > 0 ? entries[0].index : nextIdx;
+      const lastReplicatedIndex = firstSentIndex + entries.length - 1;
+      leader.nextIndex.set(followerId, lastReplicatedIndex + 1);
+      leader.matchIndex.set(followerId, lastReplicatedIndex);
+
+      // Advance commitIndex (Figure 8 safety)
+      leader.advanceCommitIndex();
+    } else {
+      // Decrement nextIndex on failure to retry
+      const currentNext = leader.nextIndex.get(followerId) ?? nextIdx;
+      leader.nextIndex.set(followerId, Math.max(1, currentNext - 1));
+    }
+
     return response;
   }
 
-  /** Run election round: candidate requests votes from all other nodes. */
+  /**
+   * Run election round: candidate requests votes from all other nodes.
+   */
   runElection(candidateId: number): { won: boolean; term: number } {
     const candidate = this.nodes[candidateId];
     if (!candidate) {
@@ -194,7 +217,6 @@ export class RaftCluster {
 
       const result = this.sendVoteRequest(candidateId, i);
       if (result.voteGranted) {
-        // Check if we have majority
         if (candidate.hasMajorityVotes()) {
           won = true;
           candidate.becomeLeader();
@@ -206,7 +228,10 @@ export class RaftCluster {
     return { won, term: candidate.currentTerm };
   }
 
-  /** Run heartbeat round: leader sends heartbeats to all followers. */
+  /**
+   * Run heartbeat round: leader sends heartbeats to all followers and
+   * attempts to replicate any uncommitted entries.
+   */
   runHeartbeats(leaderId: number): void {
     const leader = this.nodes[leaderId];
     if (!leader || leader.role !== 'leader') {
@@ -217,30 +242,37 @@ export class RaftCluster {
       if (i === leaderId) continue;
       this.sendAppendEntries(leaderId, i);
     }
+
+    // Apply newly committed entries to the leader's state machine
+    leader.applyCommittedEntries();
   }
 
-  /** Simulate one tick of the Raft protocol. */
+  /**
+   * Simulate one tick of the Raft protocol.
+   * Order: elections first, then heartbeats/replication, then clock advance.
+   */
   tick(): void {
-    // Check each node for election timeout
+    // 1. Check each node for election timeout
     for (const node of this.nodes) {
       if (node.isElectionTimedOut() && node.role !== 'leader') {
-        // Node starts election
         this.runElection(node.nodeId);
       }
     }
 
-    // Leaders send heartbeats
+    // 2. Leaders send heartbeats and replicate log entries
     for (const node of this.nodes) {
       if (node.role === 'leader') {
         this.runHeartbeats(node.nodeId);
       }
     }
 
-    // Advance clock by a small amount
+    // 3. Advance clock
     this.advanceClock(this.clock + 1);
   }
 
-  /** Simulate until a leader is elected or max ticks reached. */
+  /**
+   * Simulate until a leader is elected or max ticks reached.
+   */
   simulateUntilLeader(maxTicks: number = 1000): { leaderId: number | null; term: number } {
     for (let i = 0; i < maxTicks; i++) {
       this.tick();
@@ -252,13 +284,65 @@ export class RaftCluster {
     return { leaderId: null, term: 0 };
   }
 
-  /** Get cluster state snapshot. */
+  /**
+   * Propose a command through the leader. Returns true if accepted.
+   */
+  propose(command: string): boolean {
+    const leader = this.getLeader();
+    if (!leader) {
+      return false;
+    }
+    return leader.propose(command);
+  }
+
+  /**
+   * Get the commit index of the leader.
+   */
+  getLeaderCommitIndex(): number {
+    const leader = this.getLeader();
+    return leader?.commitIndex ?? 0;
+  }
+
+  /**
+   * Get the last applied entry index on the leader.
+   */
+  getLeaderLastApplied(): number {
+    const leader = this.getLeader();
+    return leader?.lastApplied ?? 0;
+  }
+
+  /**
+   * Get cluster state snapshot.
+   */
   getState(): { nodes: Record<number, any>; clock: number } {
     const nodes: Record<number, any> = {};
     for (const node of this.nodes) {
       nodes[node.nodeId] = node.getState();
     }
     return { nodes, clock: this.clock };
+  }
+
+  /**
+   * Get the log of a specific node.
+   */
+  getLog(nodeId: number): RaftNode['log'] {
+    return this.nodes[nodeId]?.log ?? [];
+  }
+
+  /**
+   * Count matching log entries between two nodes up to min length.
+   */
+  countMatchingLogEntries(aId: number, bId: number): number {
+    const logA = this.nodes[aId]?.log ?? [];
+    const logB = this.nodes[bId]?.log ?? [];
+    const minLen = Math.min(logA.length, logB.length);
+    let matches = 0;
+    for (let i = 0; i < minLen; i++) {
+      if (logA[i].term === logB[i].term && logA[i].command === logB[i].command) {
+        matches++;
+      }
+    }
+    return matches;
   }
 
   private setupLinks(): void {
